@@ -1,0 +1,65 @@
+untrace
+=======
+
+name
+----
+
+  `untrace' - produce runtime stacktraces for C programs.
+
+  (this is probably a terrible name and can be changed anytime now)
+
+synopsis
+--------
+
+  untrace <executable> [args...]
+
+description
+-----------
+
+  `untrace' uses ptrace to detect when its client program is ready to terminate
+  and libunwind+libdfwl to print a stack trace.  Currently this tool is only
+  implemented for and tested on amd64-linux.
+
+building
+--------
+
+  You will need libunwind and libdw (also known as libelf or elfutils).
+
+  gcc -o untrace -I. -ldw -lunwind-ptrace -lunwind-x86_64 strsig.c untrace
+
+example
+-------
+
+  Let's say we have the following code compiled with gcc -o test1 -g test1.c:
+
+void c() {
+    int j = *(int*)0;
+}
+
+void b() {
+    c();
+}
+
+void a() {
+    b();
+}
+
+int main() {
+    a();
+}
+
+  Now, running ./untrace ./test1 will produce (addresses+paths redacted):
+
+--- pid 13707 (test1) terminating, reason: received signal SIGSEGV
+  Stacktrace:
+  > c (/home/abcdef/test1.c:2)
+  > b (/home/abcdef/test1.c:7)
+  > a (/home/abcdef/test1.c:11)
+  > main (/home/abcdef/test1.c:14)
+  > __libc_start_main [0x23456789abcd]
+  > _start [0x123456789abc]
+
+license
+-------
+
+  `untrace' is licenced under GPLv3;  see LICENSE for further details
