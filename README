@@ -17,7 +17,7 @@ description
 -----------
 
   `untrace' uses ptrace to detect when its client program is ready to terminate
-  and libunwind+libdfwl to print a stack trace.  Currently this tool is only
+  and libunwind+libdwfl to print a stack trace.  Currently this tool is only
   implemented for and tested on amd64-linux.
 
 building
