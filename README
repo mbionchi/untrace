@@ -11,7 +11,7 @@ name
 synopsis
 --------
 
-  untrace <executable> [args...]
+  untrace [-t|--save-term] <executable> [args...]
 
 description
 -----------
@@ -19,6 +19,12 @@ description
   `untrace' uses ptrace to detect when its client program is ready to terminate
   and libunwind+libdwfl to print a stack trace.  Currently this tool is only
   implemented for and tested on amd64-linux.
+
+  In case if the -t option is specified and the client program does not spawn
+  any child processes,  `untrace' will reset the terminal attributes to what
+  they were before the client program was run.  Note: this does not clear the
+  screen nor does it restore the terminal cursor or use any other *curses
+  functionality.
 
 building
 --------

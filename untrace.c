@@ -25,6 +25,8 @@
 #include <elfutils/libdwfl.h>
 #include <sys/user.h>
 #include <signal.h>
+#include <getopt.h>
+#include <termios.h>
 #include <libunwind.h>
 #include <libunwind-x86_64.h>
 #include <libunwind-ptrace.h>
@@ -37,6 +39,10 @@ static const unsigned PTRACE_OPTIONS = PTRACE_O_TRACECLONE | PTRACE_O_TRACEFORK
 void die(char *s) {
     perror(s);
     exit(1);
+}
+
+void warn(char *s) {
+    fprintf(stderr, "untrace: %s\n", s);
 }
 
 ssize_t get_comm(pid_t pid, char **s) {
@@ -109,13 +115,62 @@ int main(int argc, char **argv) {
     if (!as) {
         die("unw_create_addr_space");
     }
+
+    int save_term = 0;
+
+    static char *optstring = "+t";
+    static struct option longopts[] = {
+        { "save-term", no_argument, NULL, 't' },
+        { NULL, 0, NULL, 0 }
+    };
+    int opt = getopt_long(argc, argv, optstring, longopts, NULL);
+    while (opt != -1) {
+        switch (opt) {
+            case 't':
+                fprintf(stderr, "got save term\n");
+                save_term = 1;
+                break;
+        }
+        opt = getopt_long(argc, argv, optstring, longopts, NULL);
+    }
+
+    if (optind >= argc) {
+        fprintf(stderr, "usage: untrace [-t|--save-term] <executable> [args...]\n");
+        exit(EXIT_FAILURE);
+    }
+    argv += optind;
+
+    fprintf(stderr, "%s\n", argv[0]);
+
+    int ttyfd;
+    struct termios termattrs;
+    if (save_term) {
+        ttyfd = -1;
+        if (isatty(STDIN_FILENO)) {
+            ttyfd = STDIN_FILENO;
+        } else if (isatty(STDOUT_FILENO)) {
+            ttyfd = STDOUT_FILENO;
+        } else if (isatty(STDERR_FILENO)) {
+            ttyfd = STDERR_FILENO;
+        }
+        if (ttyfd != -1) {
+            rv = tcgetattr(ttyfd, &termattrs);
+            if (rv != 0) {
+                die("failed to get terminal attributes");
+            }
+        } else {
+            warn("--save-term was requested but not connected to a tty\n");
+            save_term = 0;
+        }
+    }
+
     pid_t cpid = fork();
     if (cpid == 0) {
         lrv = ptrace(PTRACE_TRACEME, 0, NULL, NULL);
         if (lrv == -1) {
             die("failed to request tracing in child");
         } else {
-            execvp(argv[1], argv+1);
+            execvp(*argv, argv);
             die("failed to execvp in child");
         }
     } else if (cpid > 0) {
@@ -137,6 +192,10 @@ int main(int argc, char **argv) {
                     if ((wstatus>>8 == (SIGTRAP | (PTRACE_EVENT_CLONE<<8))) ||
                             (wstatus>>8 == (SIGTRAP | (PTRACE_EVENT_VFORK<<8))) ||
                             (wstatus>>8 == (SIGTRAP | (PTRACE_EVENT_FORK<<8)))) {
+                        if (save_term) {
+                            warn("it appears the process has spawned another process;  restoring terminal attributes will be unavailable");
+                            save_term = 0;
+                        }
                         lrv = ptrace(PTRACE_CONT, wpid, NULL, 0);
                         if (lrv == -1) {
                             die("failed to restart tracee after EVENT_{CLONE,*FORK}");
@@ -151,6 +210,12 @@ int main(int argc, char **argv) {
                         get_comm(wpid, &comm);
                         long pstatus;
                         lrv = ptrace(PTRACE_GETEVENTMSG, wpid, NULL, &pstatus);
+                        if (save_term) {
+                            rv = tcsetattr(ttyfd, TCSANOW, &termattrs);
+                            if (rv != 0) {
+                                warn("failed to restore terminal attributes");
+                            }
+                        }
                         if (lrv == -1) {
                             fprintf(stderr, "--> pid %ld (%s) terminating, reason: unknown\n", wpid, comm);
                         } else {
